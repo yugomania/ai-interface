@@ -20,7 +20,14 @@ export function PayPalDemoCheckout({ onPaymentSuccess }: PayPalDemoCheckoutProps
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "success" | "error">("idle");
   const [lastTxnId, setLastTxnId] = useState<string>("");
 
-  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || "test";
+  const rawClientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || "";
+  const hasValidCustomClientId = Boolean(
+    rawClientId &&
+      rawClientId !== "test" &&
+      rawClientId !== "your_paypal_sandbox_client_id" &&
+      !rawClientId.includes("your_paypal") &&
+      !rawClientId.includes("placeholder")
+  );
 
   const handleSimulatePayment = () => {
     setPaymentStatus("processing");
@@ -111,8 +118,8 @@ export function PayPalDemoCheckout({ onPaymentSuccess }: PayPalDemoCheckoutProps
           </div>
         ) : (
           <div className="w-full max-w-sm flex flex-col gap-3">
-            {clientId && clientId !== "test" ? (
-              <PayPalScriptProvider options={{ clientId, currency: "USD" }}>
+            {hasValidCustomClientId ? (
+              <PayPalScriptProvider options={{ clientId: rawClientId, currency: "USD" }}>
                 <PayPalButtons
                   style={{ layout: "vertical", shape: "rect", height: 38 }}
                   createOrder={(_data, actions) => {

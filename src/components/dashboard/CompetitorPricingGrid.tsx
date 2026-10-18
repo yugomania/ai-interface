@@ -3,11 +3,12 @@
 import { useMemo } from "react";
 import { AgGridReact } from "ag-grid-react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
+import { ModuleRegistry, AllCommunityModule, ValidationModule, provideGlobalGridOptions } from "ag-grid-community";
 import type { PricingComparison } from "@/types";
 import { Radar, ExternalLink, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+ModuleRegistry.registerModules([AllCommunityModule, ValidationModule]);
+provideGlobalGridOptions({ theme: "legacy" });
 
 interface Row {
   productName: string;
@@ -169,6 +170,7 @@ export function CompetitorPricingGrid({ comparisons, loading }: CompetitorPricin
       {/* Grid Canvas */}
       <div className="ag-theme-quartz-dark" style={{ height: 320, width: "100%" }}>
         <AgGridReact<Row>
+          theme="legacy"
           rowData={loading ? null : rowData}
           columnDefs={columnDefs}
           defaultColDef={{ resizable: true }}

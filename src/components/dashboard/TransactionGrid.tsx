@@ -3,12 +3,13 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import type { ColDef, GridReadyEvent, ICellRendererParams } from "ag-grid-community";
-import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
+import { ModuleRegistry, AllCommunityModule, ValidationModule, provideGlobalGridOptions } from "ag-grid-community";
 import type { Transaction } from "@/types";
 import { format, parseISO } from "date-fns";
 import { Download, Filter, Search } from "lucide-react";
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+ModuleRegistry.registerModules([AllCommunityModule, ValidationModule]);
+provideGlobalGridOptions({ theme: "legacy" });
 
 // ─── Purrweb-Style Status Dots & Badge Renderer ─────────────────────────────
 
@@ -303,6 +304,7 @@ export function TransactionGrid({
       {/* AG Grid Table Canvas */}
       <div className="ag-theme-quartz-dark" style={{ height: 420, width: "100%" }}>
         <AgGridReact<Transaction>
+          theme="legacy"
           ref={gridRef}
           rowData={loading ? null : filteredData}
           columnDefs={columnDefs}
@@ -310,7 +312,7 @@ export function TransactionGrid({
           onGridReady={onGridReady}
           pagination
           paginationPageSize={10}
-          rowSelection="multiple"
+          paginationPageSizeSelector={[10, 20, 50, 100]}
           loading={loading}
           overlayLoadingTemplate='<span class="text-slate-400 text-xs">Accessing PayPal transaction stream…</span>'
           overlayNoRowsTemplate='<span class="text-slate-400 text-xs">No records matching active filter</span>'

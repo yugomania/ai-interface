@@ -55,40 +55,62 @@ export function getOrdersController(): OrdersController {
 
 let _tokenCache: { token: string; expiresAt: number } | null = null;
 
-export async function getAccessToken(): Promise<string> {
+export function hasValidPayPalConfig(): boolean {
+  const id = process.env.PAYPAL_CLIENT_ID;
+  const secret = process.env.PAYPAL_CLIENT_SECRET;
+  return Boolean(
+    id &&
+      secret &&
+      !id.includes("your_paypal") &&
+      !id.includes("placeholder") &&
+      id !== "test"
+  );
+}
+
+export async function getAccessToken(): Promise<string | null> {
+  if (!hasValidPayPalConfig()) {
+    return null;
+  }
+
   if (_tokenCache && Date.now() < _tokenCache.expiresAt) {
     return _tokenCache.token;
   }
 
-  const clientId = process.env.PAYPAL_CLIENT_ID!;
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET!;
-  const isSandbox = process.env.PAYPAL_ENVIRONMENT !== "live";
-  const base = isSandbox
-    ? "https://api-m.sandbox.paypal.com"
-    : "https://api-m.paypal.com";
+  try {
+    const clientId = process.env.PAYPAL_CLIENT_ID!;
+    const clientSecret = process.env.PAYPAL_CLIENT_SECRET!;
+    const isSandbox = process.env.PAYPAL_ENVIRONMENT !== "live";
+    const base = isSandbox
+      ? "https://api-m.sandbox.paypal.com"
+      : "https://api-m.paypal.com";
 
-  const res = await fetch(`${base}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization:
-        "Basic " +
-        Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
-    },
-    body: "grant_type=client_credentials",
-  });
+    const res = await fetch(`${base}/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization:
+          "Basic " +
+          Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
+      },
+      body: "grant_type=client_credentials",
+    });
 
-  if (!res.ok) {
-    throw new Error(`PayPal token fetch failed: ${res.status}`);
+    if (!res.ok) {
+      console.warn(`[PayPal] OAuth token fetch returned ${res.status}. Falling back to sandbox demo data.`);
+      return null;
+    }
+
+    const data = await res.json();
+    _tokenCache = {
+      token: data.access_token,
+      expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+    };
+
+    return _tokenCache.token;
+  } catch (err) {
+    console.warn("[PayPal] OAuth connection failed. Falling back to sandbox demo data:", err);
+    return null;
   }
-
-  const data = await res.json();
-  _tokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
-  };
-
-  return _tokenCache.token;
 }
 
 export function getPayPalBaseUrl(): string {
