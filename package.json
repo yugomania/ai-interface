@@ -10,7 +10,7 @@
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.99",
+    "@ai-sdk/google": "^1.2.22",
     "@ai-sdk/openai": "^4.0.96",
     "@ai-sdk/react": "^4.0.147",
     "@paypal/agent-toolkit": "^1.11.0",

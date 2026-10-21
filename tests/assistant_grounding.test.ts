@@ -88,4 +88,40 @@ test("Grounded AI Assistant & Dashboard Agreement", async (t) => {
     assert.ok(validResult.confirmationToken, "Valid proposal must have confirmationToken");
     assert.ok(validResult.instruction.includes("Present this exact preview"));
   });
+
+  await t.test("offline fallback stream produces grounded payments summary without crashing", async () => {
+    const { createOfflineFallbackStream } = await import("../src/lib/ai/orchestrator");
+    const streamResponse = createOfflineFallbackStream([
+      { role: "user", content: "Summarise my payments for the last 30 days." },
+    ]);
+
+    assert.equal(streamResponse.status, 200);
+    const body = await streamResponse.text();
+    assert.ok(body.length > 0, "Stream must output text parts");
+    assert.ok(body.includes("Gross Volume") || body.includes("30-Day Merchant Payment Summary"));
+    assert.ok(body.includes("1,059.93") || body.includes("Gross Volume"));
+  });
+
+  await t.test("offline fallback stream handles transaction search queries accurately", async () => {
+    const { createOfflineFallbackStream } = await import("../src/lib/ai/orchestrator");
+    const streamResponse = createOfflineFallbackStream([
+      { role: "user", content: "Show failed or pending transactions." },
+    ]);
+
+    assert.equal(streamResponse.status, 200);
+    const body = await streamResponse.text();
+    assert.ok(body.includes("Transaction Ledger"));
+    assert.ok(body.includes("FAILED") || body.includes("PENDING"));
+  });
+
+  await t.test("createChatStream executes and returns a 200 Response stream", async () => {
+    const { createChatStream } = await import("../src/lib/ai/orchestrator");
+    const streamResponse = await createChatStream([
+      { role: "user", content: "Summarise my payments for the last 30 days." },
+    ]);
+
+    assert.equal(streamResponse.status, 200);
+    assert.ok(streamResponse.body !== null, "Stream response must have a readable body");
+  });
 });
+

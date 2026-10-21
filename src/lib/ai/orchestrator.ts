@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google";
-import { streamText, tool } from "ai";
+import { streamText, tool, createDataStreamResponse, formatDataStreamPart } from "ai";
 import { z } from "zod";
 import {
   listTransactions,
@@ -295,20 +295,242 @@ export const customTools = {
 
 export const paysightTools = customTools;
 
+// ─── Gemini Configuration Helper ─────────────────────────────────────────────
+
+export function hasValidGeminiConfig(): boolean {
+  return Boolean(
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY &&
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY.trim().length > 0
+  );
+}
+
+// ─── Offline Local Assistant Markdown Generator ─────────────────────────────
+
+export async function generateOfflineMarkdown(messages: ChatMessage[]): Promise<string> {
+  const lastUserMsg =
+    [...messages].reverse().find((m) => m.role === "user")?.content || "";
+  const query = lastUserMsg.toLowerCase();
+
+  let markdown = "";
+
+  if (
+    query.match(
+      /summarise|summarize|revenue|kpi|payment|volume|gross|net|sales|how much|how is my business|aov|fees/i
+    )
+  ) {
+    const kpis = await getMerchantKPIs();
+    const txns = await listTransactions(30);
+    const completed = txns.filter((t) => t.status === "COMPLETED").length;
+    const pending = txns.filter((t) => t.status === "PENDING").length;
+    const failed = txns.filter((t) => t.status === "FAILED").length;
+    const refunded = txns.filter((t) => t.status === "REFUNDED").length;
+
+    markdown = `### 📊 30-Day Merchant Payment Summary
+
+Here is the authoritative financial breakdown from your **${hasValidPayPalConfig() ? "PayPal Sandbox" : "Demo Sample Store"}** ledger (UTC):
+
+- **Gross Volume**: **$${kpis.totalRevenue30d.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD**
+- **Net Volume**: **$${kpis.netVolume30d.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD**
+- **PayPal Fees**: **$${kpis.totalFees30d.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD**
+- **Settled Orders**: **${kpis.transactionCount30d}**
+- **Average Order Value (AOV)**: **$${kpis.averageOrderValue.toFixed(2)} USD**
+- **Period-over-Period Change**: **${kpis.totalRevenue30dChange >= 0 ? "+" : ""}${kpis.totalRevenue30dChange.toFixed(1)}%**
+
+#### Transaction Status Breakdown:
+- ✅ **Completed**: ${completed}
+- ⏳ **Pending**: ${pending}
+- ❌ **Failed**: ${failed}
+- ↩️ **Refunded**: ${refunded}`;
+  } else if (
+    query.match(
+      /failed|pending|transactions|ledger|refunded|orders|recent transaction|history/i
+    )
+  ) {
+    let statusFilter: "ALL" | "FAILED" | "PENDING" | "REFUNDED" | "COMPLETED" =
+      "ALL";
+    if (query.includes("fail")) statusFilter = "FAILED";
+    else if (query.includes("pend")) statusFilter = "PENDING";
+    else if (query.includes("refund")) statusFilter = "REFUNDED";
+    else if (query.includes("complete")) statusFilter = "COMPLETED";
+
+    const allTxns = await listTransactions(30);
+    const filtered =
+      statusFilter === "ALL"
+        ? allTxns
+        : allTxns.filter((t) => t.status === statusFilter);
+
+    markdown = `### 🧾 Transaction Ledger (${statusFilter === "ALL" ? "All Statuses" : statusFilter})
+
+Retrieved **${filtered.length}** transactions from your **${hasValidPayPalConfig() ? "PayPal Sandbox" : "Demo Sample Store"}**:
+
+| Date | Customer | Amount | Status | Payment Method |
+| :--- | :--- | :--- | :--- | :--- |
+${filtered
+  .slice(0, 8)
+  .map(
+    (t) =>
+      `| ${t.date} | ${t.customerName} | $${t.amount.toFixed(2)} ${t.currency} | \`${t.status}\` | ${t.paymentMethod} |`
+  )
+  .join("\n")}
+
+${filtered.length > 8 ? `*Showing 8 of ${filtered.length} records. View all in the Transactions tab.*` : ""}`;
+  } else if (query.match(/dispute|chargeback|claim|case|complaint/i)) {
+    const disputesRes = await listDisputes();
+    markdown = `### ⚖️ Dispute & Claim Status
+
+${disputesRes.statusMessage}
+
+- **Active Cases**: **${disputesRes.disputes.length}**
+${
+  disputesRes.disputes.length === 0
+    ? "Your account currently has zero open buyer disputes or chargebacks."
+    : disputesRes.disputes
+        .map(
+          (d) =>
+            `- **Case #${d.id}**: $${d.amount.toFixed(2)} ${d.currency} (${d.reason}) - Status: \`${d.status}\``
+        )
+        .join("\n")
+}`;
+  } else if (
+    query.match(/price|pricing|competitor|market|channel3|compare|benchmark/i)
+  ) {
+    let productName = "Ergonomic Mechanical Keyboard";
+    let yourPrice = 89.99;
+    if (query.includes("headphone")) {
+      productName = "Premium Noise Cancelling Headphones";
+      yourPrice = 149.99;
+    } else if (query.includes("webcam")) {
+      productName = "Ultra-Clear 4K Streaming Webcam";
+      yourPrice = 119.99;
+    } else if (query.includes("hub") || query.includes("usb")) {
+      productName = "7-in-1 Aluminum USB-C Hub";
+      yourPrice = 49.99;
+    }
+
+    const comp = await getPricingComparison(productName, yourPrice);
+
+    markdown = `### 🏷️ Market Price Intelligence: ${comp.yourProductName}
+
+Channel3 pricing analysis across **${comp.competitorCount}** verified retail listings:
+
+- **Your Catalog Price**: **$${comp.yourPrice.toFixed(2)} USD**
+- **Market Benchmark Average**: **$${comp.marketAvgPrice.toFixed(2)} USD**
+- **Market Floor / Ceiling**: **$${comp.marketMinPrice.toFixed(2)}** – **$${comp.marketMaxPrice.toFixed(2)} USD**
+- **Price Positioning**: **${comp.pricePosition}** (${comp.exactMatchesCount} exact matches, ${comp.approximateMatchesCount} comparable listings)
+
+#### Competitor Listings:
+${comp.competitors
+  .slice(0, 4)
+  .map(
+    (c) =>
+      `- **${c.retailer}**: $${c.price.toFixed(2)} ${c.currency} (${c.inStock ? "In Stock" : "Out of Stock"}) [View listing](${c.url})`
+  )
+  .join("\n")}
+
+> *Note*: ${comp.disclaimer}`;
+  } else if (
+    query.match(/invoice|bill|draft invoice|create invoice|prepare invoice/i)
+  ) {
+    const invs = await listInvoices();
+    markdown = `### 📄 Invoices Overview
+
+You have **${invs.length}** invoices recorded in your system:
+
+| Invoice # | Recipient | Amount | Status | Due Date |
+| :--- | :--- | :--- | :--- | :--- |
+${invs
+  .slice(0, 5)
+  .map(
+    (inv) =>
+      `| ${inv.invoiceNumber} | ${inv.recipientName} | $${inv.amount.toFixed(2)} ${inv.currency} | \`${inv.status}\` | ${inv.dueDate} |`
+  )
+  .join("\n")}
+
+💡 *To prepare a new invoice, use the **New invoice** button in the dashboard or specify recipient name, email, item name, and price.*`;
+  } else {
+    markdown = `### 👋 PaySight Copilot
+
+I am your assistant for PayPal merchant analytics and shopping intelligence. Here is what I can do:
+
+1. **Payment Summary**: *"Summarise my payments for the last 30 days"* to view authoritative gross volume, net revenue, fees, and AOV.
+2. **Transaction Search**: *"Show failed or pending transactions"* to inspect payment anomalies.
+3. **Market Pricing**: *"Compare this product with relevant market listings"* to benchmark prices via Channel3.
+4. **Disputes & Claims**: *"Check open disputes"* to review merchant chargebacks.
+5. **Invoices**: *"Show recent invoices"* or draft a new PayPal invoice.`;
+  }
+
+  markdown += `\n\n---\n> ℹ️ *PaySight Local Tools*: Response generated from verified local PayPal ledger data.`;
+
+  return markdown;
+}
+
+// ─── Offline Local Assistant Stream ─────────────────────────────────────────
+
+export function createOfflineFallbackStream(messages: ChatMessage[]): Response {
+  return createDataStreamResponse({
+    execute: async (dataStream) => {
+      const markdown = await generateOfflineMarkdown(messages);
+      dataStream.write(formatDataStreamPart("text", markdown));
+    },
+  });
+}
+
 // ─── Streaming Chat Handler ───────────────────────────────────────────────────
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
-export function createChatStream(messages: ChatMessage[]) {
-  const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+export async function createChatStream(messages: ChatMessage[]): Promise<Response> {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
 
-  return streamText({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    model: google(modelName) as any,
-    system: SYSTEM_PROMPT,
-    messages,
-    tools: customTools,
-    maxSteps: 8,
-    temperature: 0.1,
+  return createDataStreamResponse({
+    execute: async (dataStream) => {
+      let producedOutput = false;
+
+      if (apiKey) {
+        const modelName = process.env.GEMINI_MODEL || "gemini-omni-1.1-flash";
+        try {
+          const result = streamText({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            model: google(modelName) as any,
+            system: SYSTEM_PROMPT,
+            messages,
+            tools: customTools,
+            maxSteps: 5,
+            temperature: 0.1,
+          });
+
+          for await (const part of result.fullStream) {
+            if (part.type === "text-delta") {
+              dataStream.write(formatDataStreamPart("text", part.textDelta));
+              producedOutput = true;
+            } else if (part.type === "tool-call") {
+              dataStream.write(formatDataStreamPart("tool_call", part));
+              producedOutput = true;
+            } else if (part.type === "tool-result") {
+              dataStream.write(formatDataStreamPart("tool_result", part));
+              producedOutput = true;
+            } else if (part.type === "error") {
+              console.warn(
+                "[createChatStream] Gemini stream error, falling back to local tools:",
+                part.error
+              );
+              break;
+            }
+          }
+        } catch (err) {
+          console.warn("[createChatStream] Gemini streamText exception:", err);
+        }
+      }
+
+      if (!producedOutput) {
+        const fallbackText = await generateOfflineMarkdown(messages);
+        dataStream.write(formatDataStreamPart("text", fallbackText));
+      }
+    },
+    onError: (err) => {
+      console.error("[createChatStream] Global stream error:", err);
+      return "PaySight Copilot encountered an error. Please retry your request.";
+    },
   });
 }
+

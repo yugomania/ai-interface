@@ -2,7 +2,7 @@
 
 import { useChat } from "ai/react";
 import { useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2, Sparkles, ArrowRight, X } from "lucide-react";
+import { Send, Bot, User, Loader2, Sparkles, ArrowRight, X, AlertCircle, RefreshCw } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
   "Summarise my payments for the last 30 days.",
@@ -18,7 +18,7 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onClose, prefillPrompt, onClearPrefill }: ChatPanelProps) {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput } =
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setInput, error, reload } =
     useChat({ api: "/api/chat" });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -159,6 +159,26 @@ export function ChatPanel({ onClose, prefillPrompt, onClearPrefill }: ChatPanelP
             <div className="bg-[#F7F7F8] border border-[#E5E5E5] rounded-xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 text-[#C2410C] animate-spin" />
               <span className="text-xs text-[#626262]">Executing PayPal &amp; Channel3 tools…</span>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-start gap-2.5">
+            <div className="w-7 h-7 bg-[#FEF2F2] border border-[#FCA5A5] rounded-full flex items-center justify-center flex-shrink-0 text-[#DC2626]">
+              <AlertCircle className="w-3.5 h-3.5" />
+            </div>
+            <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-xl rounded-tl-sm p-3.5 text-xs text-[#991B1B] max-w-[85%] space-y-2">
+              <div className="font-semibold">Unable to complete request</div>
+              <p className="leading-relaxed text-[#7F1D1D]">{error.message || "Something went wrong while connecting to the assistant."}</p>
+              <button
+                type="button"
+                onClick={() => reload()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C2410C] hover:bg-[#9A3412] text-white text-xs font-medium transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Try again</span>
+              </button>
             </div>
           </div>
         )}

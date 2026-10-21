@@ -14,8 +14,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const stream = createChatStream(messages as ChatMessage[]);
-    return (await stream).toDataStreamResponse();
+    return await createChatStream(messages as ChatMessage[]);
   } catch (err) {
     console.error("[/api/chat] error:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
