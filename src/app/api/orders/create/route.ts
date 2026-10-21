@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { getOrdersController, hasValidPayPalConfig } from "@/lib/paypal/client";
-import { CheckoutPaymentIntent } from "@paypal/paypal-server-sdk";
+import {
+  CheckoutPaymentIntent,
+  PaypalWalletContextShippingPreference,
+  PaypalExperienceUserAction,
+} from "@paypal/paypal-server-sdk";
 
 // ─── Authoritative Server-Side Product Catalog ───────────────────────────────
 // Amounts and currencies are determined here, never trusted from the browser.
@@ -75,6 +79,15 @@ export async function POST(req: NextRequest) {
               customId: productId ?? "demo_10",
             },
           ],
+          paymentSource: {
+            paypal: {
+              experienceContext: {
+                brandName: "PaySight",
+                shippingPreference: PaypalWalletContextShippingPreference.NoShipping,
+                userAction: PaypalExperienceUserAction.PayNow,
+              },
+            },
+          },
         },
       });
 

@@ -214,7 +214,6 @@ export function PayPalDemoCheckout({ onPaymentSuccess }: PayPalDemoCheckoutProps
         currency: DEMO_PRODUCT.currency,
         intent: "capture",
         components: "buttons",
-        "buyer-country": "US",
       }}
     >
       <div className="bg-white border border-[#E5E5E5] rounded-xl p-5 flex flex-col gap-4">
