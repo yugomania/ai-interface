@@ -734,7 +734,25 @@ export async function captureServerSideOrder(
     saveTransaction(newTxn);
     return { success: true, transaction: newTxn };
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    // The PayPal server SDK throws a CustomError where .message may be empty.
+    // The actual error details live in err.result (parsed JSON response body).
+    let errMsg = "PayPal capture failed";
+    if (err && typeof err === "object") {
+      const sdkErr = err as Record<string, unknown>;
+      const result = sdkErr.result as Record<string, unknown> | undefined;
+      if (result?.message && typeof result.message === "string") {
+        // e.g. "Payer has not yet approved the Order for payment."
+        errMsg = result.message;
+        const details = result.details as Array<Record<string, string>> | undefined;
+        if (details?.[0]?.issue) {
+          errMsg = `${details[0].issue}: ${details[0].description ?? result.message}`;
+        }
+      } else if (sdkErr.message && typeof sdkErr.message === "string" && sdkErr.message.trim()) {
+        errMsg = sdkErr.message;
+      } else if (typeof sdkErr.statusCode === "number") {
+        errMsg = `PayPal API error (HTTP ${sdkErr.statusCode})`;
+      }
+    }
     console.error("[PayPal] captureServerSideOrder error:", errMsg);
     return { success: false, error: errMsg };
   }
