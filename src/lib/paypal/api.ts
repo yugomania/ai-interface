@@ -620,119 +620,122 @@ export async function createPaymentLink(input: CreatePaymentLinkInput): Promise<
 
 // ─── Server-Side Order Capture & Reconciliation ──────────────────────────────
 
+// Resolved server-side from create route catalog (avoids a circular import).
+// Amounts in USD from the authoritative product catalog.
+const CAPTURE_PRODUCT_AMOUNTS: Record<string, { amount: number; currency: string; name: string }> = {
+  demo_10:   { amount: 10.00, currency: "USD", name: "PaySight Demo Product" },
+  sub_pro:   { amount: 49.00, currency: "USD", name: "PaySight Pro Merchant Plan" },
+  intel_add: { amount: 29.00, currency: "USD", name: "Channel3 Price Scanner Add-on" },
+  exp_pack:  { amount: 19.00, currency: "USD", name: "Agentic Invoicing Expansion" },
+};
+
 export async function captureServerSideOrder(
   orderId: string,
-  expectedAmount?: number,
-  expectedCurrency = "USD"
+  productId?: string,
+  // Legacy params kept for backwards compat; productId takes precedence.
+  _legacyExpectedAmount?: number,
+  _legacyCurrency = "USD"
 ): Promise<{ success: boolean; transaction?: Transaction; error?: string }> {
+  // Resolve authoritative amount from server-side catalog.
+  const product = CAPTURE_PRODUCT_AMOUNTS[productId ?? "demo_10"] ?? CAPTURE_PRODUCT_AMOUNTS.demo_10;
+  const { amount: expectedAmount, currency: expectedCurrency, name: productName } = product;
+
   if (!hasValidPayPalConfig()) {
-    // Demo Mode persistent capture
-    const captureId = `CAP-SIM-${Date.now().toString().slice(-6)}`;
+    // Demo Mode: simulate a capture with realistic fee calculation.
+    const captureId = `CAP-SIM-${Date.now().toString().slice(-8)}`;
+    const fee = parseFloat((expectedAmount * 0.029 + 0.30).toFixed(2));
     const newTxn: Transaction = {
       id: captureId,
       date: new Date().toISOString(),
-      amount: expectedAmount || 49.00,
-      fee: parseFloat(((expectedAmount || 49.00) * 0.029 + 0.30).toFixed(2)),
-      net: parseFloat(((expectedAmount || 49.00) * (1 - 0.029) - 0.30).toFixed(2)),
+      amount: expectedAmount,
+      fee,
+      net: parseFloat((expectedAmount - fee).toFixed(2)),
       currency: expectedCurrency,
       status: "COMPLETED",
-      customerName: "Alex Dev (Sandbox Judge)",
-      customerEmail: "judge@hackathon.dev",
-      productName: "PaySight Pro Merchant Plan",
-      productSku: "SUB_PRO",
+      customerName: "Sandbox Demo Buyer",
+      customerEmail: "sb-demo@sandbox.paypal.com",
+      productName,
       paymentMethod: "paypal",
       source: "demo_sample",
-      note: "Instant server-side captured sandbox payment",
+      note: `[SANDBOX DEMO] Simulated capture — no real money moved`,
     };
-
     saveTransaction(newTxn);
     return { success: true, transaction: newTxn };
   }
 
   try {
     const ordersController = getOrdersController();
-    const response = await ordersController.captureOrder({
-      id: orderId,
-    });
+    const response = await ordersController.captureOrder({ id: orderId });
 
     const result = response.result;
     const capture = result.purchaseUnits?.[0]?.payments?.captures?.[0];
-    const captureId = capture?.id || `CAP-${orderId}`;
-    const amountVal = parseFloat(capture?.amount?.value ?? String(expectedAmount || "0"));
-    const currency = capture?.amount?.currencyCode ?? expectedCurrency;
 
-    // Server-side validation of expected amount and currency
-    if (expectedAmount && Math.abs(amountVal - expectedAmount) > 0.01) {
+    if (!capture) {
+      return { success: false, error: "No capture record in PayPal response" };
+    }
+
+    const captureId = capture.id ?? `CAP-${orderId}`;
+
+    // Idempotency: if this capture ID is already in the ledger, return the stored transaction.
+    const existing = getStoredTransactions().find((t) => t.id === captureId);
+    if (existing) {
+      console.info(`[PayPal] Duplicate capture attempt for ${captureId} — returning stored record.`);
+      return { success: true, transaction: existing };
+    }
+
+    const amountVal = parseFloat(capture.amount?.value ?? "0");
+    const currency = capture.amount?.currencyCode ?? expectedCurrency;
+
+    // Server-side amount verification against the catalog (not the browser).
+    if (Math.abs(amountVal - expectedAmount) > 0.01) {
       return {
         success: false,
-        error: `Captured amount ($${amountVal}) does not match expected order amount ($${expectedAmount})`,
+        error: `Amount mismatch: captured $${amountVal} ${currency} but expected $${expectedAmount} ${expectedCurrency} for product "${productName}". Possible tampering — do not fulfil.`,
       };
     }
 
-    const feeVal = parseFloat(capture?.sellerReceivableBreakdown?.paypalFee?.value ?? "0");
-    const netVal = parseFloat(capture?.sellerReceivableBreakdown?.netAmount?.value ?? String(amountVal - feeVal));
+    if (currency !== expectedCurrency) {
+      return {
+        success: false,
+        error: `Currency mismatch: captured ${currency} but expected ${expectedCurrency}`,
+      };
+    }
+
+    const feeVal = parseFloat(capture.sellerReceivableBreakdown?.paypalFee?.value ?? "0");
+    const netVal = parseFloat(
+      capture.sellerReceivableBreakdown?.netAmount?.value ?? String(amountVal - feeVal)
+    );
+
+    // Verify capture status
+    const captureStatus = capture.status;
+    if (captureStatus !== "COMPLETED") {
+      return {
+        success: false,
+        error: `Capture status is "${captureStatus}" — not COMPLETED. Do not fulfil until status confirms.`,
+      };
+    }
 
     const newTxn: Transaction = {
       id: captureId,
-      date: capture?.createTime || new Date().toISOString(),
+      date: capture.createTime ?? new Date().toISOString(),
       amount: amountVal,
       fee: feeVal,
       net: netVal,
       currency,
-      status: capture?.status === "COMPLETED" ? "COMPLETED" : "PENDING",
-      customerName: `${result.payer?.name?.givenName || "Sandbox"} ${result.payer?.name?.surname || "Buyer"}`,
-      customerEmail: result.payer?.emailAddress || "judge@hackathon.dev",
-      productName: result.purchaseUnits?.[0]?.description || "PaySight Checkout Product",
+      status: "COMPLETED",
+      customerName: `${result.payer?.name?.givenName ?? "Sandbox"} ${result.payer?.name?.surname ?? "Buyer"}`.trim(),
+      customerEmail: result.payer?.emailAddress ?? "sandbox-buyer@paypal.com",
+      productName,
       paymentMethod: "paypal",
       source: "paypal_sandbox",
-      note: `Captured via PayPal Orders API v2 (Capture ID: ${captureId})`,
+      note: `[SANDBOX] Verified PayPal capture — Order: ${orderId} | Capture: ${captureId}`,
     };
 
     saveTransaction(newTxn);
     return { success: true, transaction: newTxn };
   } catch (err) {
-    // PayPal Orders API v2 requires buyer approval before capture can succeed.
-    // In a server-side headless demo there is no buyer redirect, so
-    // ORDER_NOT_APPROVED is the expected response for a freshly created order.
-    // We detect this case and fall back to a verified sandbox simulation so the
-    // demo flow completes end-to-end without a real payment UI.
     const errMsg = err instanceof Error ? err.message : String(err);
-    const isApprovalError =
-      errMsg.includes("ORDER_NOT_APPROVED") ||
-      errMsg.includes("UNPROCESSABLE_ENTITY") ||
-      errMsg.includes("422") ||
-      errMsg.includes("not approved");
-
-    if (isApprovalError) {
-      console.info(
-        "[PayPal] Order not yet approved by buyer — using verified sandbox simulation for headless demo."
-      );
-      const amount = expectedAmount || 49.0;
-      const fee = parseFloat((amount * 0.029 + 0.30).toFixed(2));
-      const captureId = `CAP-SBX-${orderId.slice(-8)}-${Date.now().toString().slice(-5)}`;
-      const newTxn: Transaction = {
-        id: captureId,
-        date: new Date().toISOString(),
-        amount,
-        fee,
-        net: parseFloat((amount - fee).toFixed(2)),
-        currency: expectedCurrency,
-        status: "COMPLETED",
-        customerName: "Sandbox Buyer (Demo)",
-        customerEmail: "sb-buyer@sandbox.paypal.com",
-        productName: "PaySight Merchant Plan",
-        paymentMethod: "paypal",
-        source: "paypal_sandbox",
-        note: `Sandbox-verified capture for order ${orderId} (headless demo mode)`,
-      };
-      saveTransaction(newTxn);
-      return { success: true, transaction: newTxn };
-    }
-
-    console.error("[PayPal] captureServerSideOrder error:", err);
-    return {
-      success: false,
-      error: errMsg,
-    };
+    console.error("[PayPal] captureServerSideOrder error:", errMsg);
+    return { success: false, error: errMsg };
   }
 }

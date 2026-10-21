@@ -2,18 +2,64 @@ import { NextRequest } from "next/server";
 import { getOrdersController, hasValidPayPalConfig } from "@/lib/paypal/client";
 import { CheckoutPaymentIntent } from "@paypal/paypal-server-sdk";
 
+// ─── Authoritative Server-Side Product Catalog ───────────────────────────────
+// Amounts and currencies are determined here, never trusted from the browser.
+
+export const SANDBOX_PRODUCTS: Record<
+  string,
+  { name: string; amount: string; currency: string; description: string }
+> = {
+  demo_10: {
+    name: "PaySight Demo Product",
+    amount: "10.00",
+    currency: "USD",
+    description: "[SANDBOX] PaySight $10 Demo — test payment, no real money",
+  },
+  sub_pro: {
+    name: "PaySight Pro Merchant Plan",
+    amount: "49.00",
+    currency: "USD",
+    description: "[SANDBOX] Monthly AI analytics & real-time monitoring",
+  },
+  intel_add: {
+    name: "Channel3 Price Scanner Add-on",
+    amount: "29.00",
+    currency: "USD",
+    description: "[SANDBOX] Competitor tracking for up to 10,000 SKUs",
+  },
+  exp_pack: {
+    name: "Agentic Invoicing Expansion",
+    amount: "19.00",
+    currency: "USD",
+    description: "[SANDBOX] Automated invoice creation & dispute shields",
+  },
+};
+
 export async function POST(req: NextRequest) {
+  // Validate required server-side credentials are present.
+  // Report only missing variable names — never values.
+  const missingVars: string[] = [];
+  if (!process.env.PAYPAL_CLIENT_ID) missingVars.push("PAYPAL_CLIENT_ID");
+  if (!process.env.PAYPAL_CLIENT_SECRET) missingVars.push("PAYPAL_CLIENT_SECRET");
+  if (!process.env.PAYPAL_ENVIRONMENT) missingVars.push("PAYPAL_ENVIRONMENT");
+
+  if (missingVars.length > 0 && hasValidPayPalConfig()) {
+    // Config looks valid, missing vars might just be PAYPAL_ENVIRONMENT defaulting
+  } else if (missingVars.includes("PAYPAL_CLIENT_ID") || missingVars.includes("PAYPAL_CLIENT_SECRET")) {
+    return Response.json(
+      { error: `Missing required environment variables: ${missingVars.join(", ")}` },
+      { status: 500 }
+    );
+  }
+
   try {
     const body = await req.json();
-    const { itemName, price, currency = "USD" } = body;
+    const { productId } = body;
 
-    if (!price || parseFloat(price) <= 0) {
-      return Response.json({ error: "Invalid price amount" }, { status: 400 });
-    }
+    // Resolve product from server-side catalog by ID — never accept amount from browser.
+    const product = SANDBOX_PRODUCTS[productId ?? "demo_10"] ?? SANDBOX_PRODUCTS.demo_10;
 
-    const priceNum = parseFloat(price);
-
-    // If live PayPal sandbox credentials configured, create real PayPal order
+    // Explicitly use sandbox endpoint via PAYPAL_ENVIRONMENT (not NODE_ENV).
     if (hasValidPayPalConfig()) {
       const ordersController = getOrdersController();
       const response = await ordersController.createOrder({
@@ -22,32 +68,42 @@ export async function POST(req: NextRequest) {
           purchaseUnits: [
             {
               amount: {
-                currencyCode: currency,
-                value: priceNum.toFixed(2),
+                currencyCode: product.currency,
+                value: product.amount,
               },
-              description: itemName || "PaySight Merchant Order",
+              description: product.description,
+              customId: productId ?? "demo_10",
             },
           ],
         },
       });
 
       const order = response.result;
+      // Return order ID and resolved product metadata — never credentials or tokens.
       return Response.json({
         id: order.id,
         status: order.status,
+        productName: product.name,
+        amount: product.amount,
+        currency: product.currency,
+        environment: process.env.PAYPAL_ENVIRONMENT ?? "sandbox",
         isLive: true,
       });
     }
 
-    // In Demo Mode, return structured mock order ID
-    const demoOrderId = `ORD-DEMO-${Date.now().toString().slice(-6)}`;
+    // Demo fallback (no valid credentials)
+    const demoOrderId = `ORD-DEMO-${Date.now().toString().slice(-8)}`;
     return Response.json({
       id: demoOrderId,
       status: "CREATED",
+      productName: product.name,
+      amount: product.amount,
+      currency: product.currency,
+      environment: "demo",
       isLive: false,
     });
   } catch (err) {
-    console.error("[/api/orders/create] error:", err);
+    console.error("[/api/orders/create] error:", err instanceof Error ? err.message : err);
     return Response.json(
       { error: err instanceof Error ? err.message : "Failed to create order" },
       { status: 500 }

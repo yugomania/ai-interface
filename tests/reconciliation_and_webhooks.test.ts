@@ -9,7 +9,7 @@ import type { Transaction } from "../src/types";
 test("Payment State, Reconciliation & Webhook Processing", async (t) => {
   await t.test("captureServerSideOrder validates expected amount and stores transaction", async () => {
     const orderId = `TEST-ORDER-${Date.now()}`;
-    const captureResult = await captureServerSideOrder(orderId, 49.00, "USD");
+    const captureResult = await captureServerSideOrder(orderId, "sub_pro");
 
     assert.equal(captureResult.success, true);
     assert.ok(captureResult.transaction);
