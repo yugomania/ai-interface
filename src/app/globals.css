@@ -2,60 +2,114 @@
 @import "ag-grid-community/styles/ag-grid.css";
 @import "ag-grid-community/styles/ag-theme-quartz.css";
 
+/* ─── PaySight Design Tokens: Clean White & Black with Restrained Orange Accents ─── */
+
 :root {
-  --background: #090d16;
-  --foreground: #f8fafc;
+  /* Core Surfaces & Backgrounds */
+  --bg-main: #FFFFFF;
+  --bg-secondary: #F7F7F8;
+  --bg-sidebar: #111111;
+  --bg-sidebar-hover: #242424;
+
+  /* Typography */
+  --text-primary: #171717;
+  --text-secondary: #626262;
+  --text-muted: #8E8E93;
+
+  /* Borders & Lines */
+  --border-subtle: #E5E5E5;
+  --border-medium: #D4D4D4;
+
+  /* Restrained Orange Accents */
+  --orange-primary: #C2410C;
+  --orange-hover: #9A3412;
+  --orange-pale: #FFF3EB;
+  --orange-border: #FED7AA;
+
+  /* Accessible Semantic Feedback Tokens */
+  --success-text: #15803D;
+  --success-bg: #F0FDF4;
+  --success-border: #DCFCE7;
+
+  --warning-text: #B45309;
+  --warning-bg: #FFFBEB;
+  --warning-border: #FEF3C7;
+
+  --error-text: #B91C1C;
+  --error-bg: #FEF2F2;
+  --error-border: #FEE2E2;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Purrweb-style custom sleek scrollbars */
+/* Subtle, unobtrusive scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b0f19;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 9999px;
+  background: #E5E5E5;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #D4D4D4;
 }
 
-/* AG Grid Dark Quartz Purrweb-Style Overrides */
-.ag-theme-quartz-dark {
-  --ag-background-color: rgba(15, 23, 42, 0.4);
-  --ag-header-background-color: rgba(11, 15, 25, 0.95);
-  --ag-border-color: rgba(51, 65, 85, 0.6);
-  --ag-row-hover-color: rgba(59, 130, 246, 0.08);
-  --ag-selected-row-background-color: rgba(59, 130, 246, 0.15);
-  --ag-odd-row-background-color: transparent;
-  --ag-header-foreground-color: #94a3b8;
-  --ag-foreground-color: #f1f5f9;
-  --ag-font-size: 12px;
-  --ag-header-height: 40px;
+/* ─── AG Grid Light Quartz Theme Customization ────────────────────────────── */
+
+.ag-theme-quartz {
+  --ag-background-color: #FFFFFF;
+  --ag-header-background-color: #F7F7F8;
+  --ag-border-color: #E5E5E5;
+  --ag-row-hover-color: #F7F7F8;
+  --ag-selected-row-background-color: #FFF3EB;
+  --ag-odd-row-background-color: #FFFFFF;
+  --ag-header-foreground-color: #171717;
+  --ag-foreground-color: #171717;
+  --ag-secondary-foreground-color: #626262;
+  --ag-font-size: 13px;
+  --ag-header-height: 42px;
   --ag-row-height: 52px;
-  border-radius: 1rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.75rem;
 }
 
-.ag-theme-quartz-dark .ag-header-cell {
+.ag-theme-quartz .ag-header-cell {
   font-weight: 600;
-  text-transform: uppercase;
   font-size: 11px;
+  text-transform: uppercase;
   letter-spacing: 0.05em;
+  color: #626262;
+  border-right: 1px solid #E5E5E5;
 }
 
-.ag-theme-quartz-dark .ag-root-wrapper {
+.ag-theme-quartz .ag-header-row {
+  border-bottom: 1px solid #E5E5E5;
+}
+
+.ag-theme-quartz .ag-row {
+  border-bottom: 1px solid #E5E5E5;
+}
+
+.ag-theme-quartz .ag-root-wrapper {
   border: none;
+  border-radius: 0.75rem;
+}
+
+.ag-theme-quartz .ag-paging-panel {
+  border-top: 1px solid #E5E5E5;
+  color: #626262;
+  font-size: 12px;
 }

@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PaySight — AI-Powered PayPal Analytics & Shopping Intelligence",
+  title: "PaySight — Merchant Intelligence & Shopping Analytics",
   description:
-    "Intelligent merchant dashboard combining PayPal transactions, real-time Channel3 competitor market data, AG Grid data visualization, and an autonomous Gemini AI agent.",
+    "PaySight is a next-generation merchant command center bridging PayPal transactions, real-time market data, AG Grid visualizations, and an autonomous AI copilot.",
 };
 
 export default function RootLayout({
@@ -26,9 +26,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100">
+      <body className="min-h-full flex flex-col bg-white text-[#171717]">
         {children}
       </body>
     </html>

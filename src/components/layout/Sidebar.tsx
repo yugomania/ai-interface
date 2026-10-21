@@ -7,97 +7,162 @@ import {
   ShieldAlert,
   Radar,
   CreditCard,
-  Settings,
-  HelpCircle,
   ExternalLink,
+  X,
+  User,
 } from "lucide-react";
 
-export type NavTab = "overview" | "transactions" | "invoices" | "disputes" | "pricing" | "checkout";
+export type NavTab =
+  | "overview"
+  | "transactions"
+  | "invoices"
+  | "disputes"
+  | "pricing"
+  | "checkout";
 
 interface SidebarProps {
   activeTab: NavTab;
   onTabChange: (tab: NavTab) => void;
   disputeCount?: number;
+  isOpen?: boolean;
+  onClose?: () => void;
+  isLiveConnected?: boolean;
 }
 
-export function Sidebar({ activeTab, onTabChange, disputeCount = 1 }: SidebarProps) {
-  const navItems = [
+// ─── Monochrome PaySight "P" Logo ───────────────────────────────────────────
+
+export function PaySightLogo({
+  className = "w-7 h-7",
+  inverted = true,
+}: {
+  className?: string;
+  inverted?: boolean;
+}) {
+  return (
+    <div
+      className={`${className} rounded-md flex items-center justify-center font-black text-sm select-none ${
+        inverted
+          ? "bg-white text-[#111111]"
+          : "bg-[#111111] text-white"
+      }`}
+      aria-hidden="true"
+    >
+      P
+    </div>
+  );
+}
+
+export function Sidebar({
+  activeTab,
+  onTabChange,
+  disputeCount = 0,
+  isOpen = false,
+  onClose,
+  isLiveConnected = false,
+}: SidebarProps) {
+  const primaryNavItems = [
     { id: "overview" as NavTab, label: "Overview", icon: LayoutDashboard },
-    { id: "transactions" as NavTab, label: "Live Ledger", icon: CreditCard },
-    { id: "invoices" as NavTab, label: "Invoicing", icon: FileText },
+    { id: "transactions" as NavTab, label: "Transactions", icon: CreditCard },
+    { id: "invoices" as NavTab, label: "Invoices", icon: FileText },
+    { id: "pricing" as NavTab, label: "Price comparison", icon: Radar, tag: "Channel3" },
     {
       id: "disputes" as NavTab,
-      label: "Dispute Shield",
+      label: "Disputes",
       icon: ShieldAlert,
       badge: disputeCount > 0 ? disputeCount : undefined,
     },
-    { id: "pricing" as NavTab, label: "Market Radar", icon: Radar, tag: "Channel3" },
-    { id: "checkout" as NavTab, label: "Pay Terminal", icon: Receipt },
   ];
 
-  return (
-    <aside className="w-64 bg-slate-900/95 border-r border-slate-800/80 flex flex-col justify-between h-screen sticky top-0 flex-shrink-0 z-30 select-none backdrop-blur-xl">
-      {/* Brand Header */}
-      <div>
-        <div className="p-5 border-b border-slate-800/70 flex items-center justify-between">
+  const secondaryNavItems = [
+    { id: "checkout" as NavTab, label: "Sandbox checkout", icon: Receipt },
+  ];
+
+  const handleNavClick = (id: NavTab) => {
+    onTabChange(id);
+    onClose?.();
+  };
+
+  const content = (
+    <div className="w-64 bg-[#111111] text-white flex flex-col justify-between h-full select-none">
+      {/* Brand & Main Navigation */}
+      <div className="flex flex-col">
+        {/* Top Header */}
+        <div className="h-16 px-5 border-b border-[#242424] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-blue-500/25">
-              <span className="font-black text-white text-base tracking-tighter">P</span>
-            </div>
+            <PaySightLogo inverted className="w-7 h-7" />
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-sm tracking-tight text-white">PaySight</span>
-                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <span className="font-bold text-sm tracking-tight text-white">
+                  PaySight
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#242424] text-[#A3A3A3] border border-[#333333]">
                   v2.0
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 font-medium">Merchant Intelligence</p>
+              <p className="text-[11px] text-[#A3A3A3] font-medium leading-tight">
+                Merchant Intelligence
+              </p>
             </div>
           </div>
+
+          {/* Close button for mobile drawer */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="lg:hidden p-1.5 text-[#A3A3A3] hover:text-white hover:bg-[#242424] rounded-md transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/* Navigation list */}
-        <div className="p-3 space-y-1">
-          <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-            Workspaces
+        {/* Primary Navigation List */}
+        <nav className="p-3 space-y-1">
+          <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#737373]">
+            Navigation
           </div>
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all group ${
+                onClick={() => handleNavClick(item.id)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors group focus:outline-none focus:ring-1 focus:ring-[#C2410C] ${
                   isActive
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/20 font-semibold"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    ? "bg-[#242424] text-white font-semibold"
+                    : "text-[#A3A3A3] hover:text-white hover:bg-[#242424]/60"
                 }`}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center min-w-0">
+                  {/* Active small orange marker */}
+                  {isActive && (
+                    <span className="w-1.5 h-3.5 rounded-full bg-[#C2410C] mr-2.5 flex-shrink-0" />
+                  )}
                   <Icon
-                    className={`w-4 h-4 transition-colors ${
-                      isActive ? "text-white" : "text-slate-400 group-hover:text-slate-200"
+                    className={`w-4 h-4 flex-shrink-0 mr-2.5 transition-colors ${
+                      isActive ? "text-white" : "text-[#737373] group-hover:text-white"
                     }`}
                   />
-                  <span>{item.label}</span>
+                  <span className="truncate">{item.label}</span>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-shrink-0">
                   {item.tag && (
                     <span
                       className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
                         isActive
-                          ? "bg-blue-700 text-cyan-200"
-                          : "bg-slate-800 text-cyan-400 border border-cyan-500/20"
+                          ? "bg-[#111111] text-[#E5E5E5] border border-[#404040]"
+                          : "bg-[#242424] text-[#A3A3A3] border border-[#333333]"
                       }`}
                     >
                       {item.tag}
                     </span>
                   )}
                   {item.badge && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-[#242424] text-[#C2410C] border border-[#C2410C]/30">
                       {item.badge}
                     </span>
                   )}
@@ -105,50 +170,112 @@ export function Sidebar({ activeTab, onTabChange, disputeCount = 1 }: SidebarPro
               </button>
             );
           })}
-        </div>
+
+          {/* Secondary Demo Tools Section */}
+          <div className="pt-4 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#737373]">
+            Demo Tools
+          </div>
+          {secondaryNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavClick(item.id)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-colors group focus:outline-none focus:ring-1 focus:ring-[#C2410C] ${
+                  isActive
+                    ? "bg-[#242424] text-white font-semibold"
+                    : "text-[#A3A3A3] hover:text-white hover:bg-[#242424]/60"
+                }`}
+              >
+                <div className="flex items-center min-w-0">
+                  {isActive && (
+                    <span className="w-1.5 h-3.5 rounded-full bg-[#C2410C] mr-2.5 flex-shrink-0" />
+                  )}
+                  <Icon
+                    className={`w-4 h-4 flex-shrink-0 mr-2.5 transition-colors ${
+                      isActive ? "text-white" : "text-[#737373] group-hover:text-white"
+                    }`}
+                  />
+                  <span className="truncate">{item.label}</span>
+                </div>
+                <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-[#242424] text-[#A3A3A3] border border-[#333333]">
+                  Sandbox
+                </span>
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* Bottom Sandbox Card & User Profile */}
-      <div className="p-3 border-t border-slate-800/70 space-y-3">
+      {/* Account / Controls at Bottom */}
+      <div className="p-3 border-t border-[#242424] space-y-2.5">
         {/* Environment Status Badge */}
-        <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col gap-1.5">
+        <div className="bg-[#1A1A1A] border border-[#242424] rounded-lg p-2.5 flex flex-col gap-1 text-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              Network
+            <span className="text-[10px] font-semibold text-[#737373] uppercase tracking-wider">
+              Environment
             </span>
-            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Connected
+            <span className="inline-flex items-center gap-1.5 text-[10px] text-[#A3A3A3] font-medium">
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isLiveConnected ? "bg-[#15803D]" : "bg-[#B45309]"
+                }`}
+              />
+              {isLiveConnected ? "PayPal Sandbox" : "Demo Mode"}
             </span>
           </div>
-          <div className="text-xs font-semibold text-slate-200">PayPal Sandbox</div>
-          <div className="text-[10px] font-mono text-slate-500 truncate">
-            api-m.sandbox.paypal.com
+          <div className="text-[10px] font-mono text-[#737373] truncate">
+            {isLiveConnected ? "api-m.sandbox.paypal.com" : "Sample Data (Local Store)"}
           </div>
         </div>
 
-        {/* User profile row */}
+        {/* User Account Row */}
         <div className="flex items-center justify-between px-2 py-1.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
-              JD
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-md bg-[#242424] text-white flex items-center justify-center text-xs font-bold border border-[#333333] flex-shrink-0">
+              <User className="w-3.5 h-3.5 text-[#A3A3A3]" />
             </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold text-slate-200">Judge Demo</span>
-              <span className="text-[10px] text-slate-500 truncate">judge@hackathon.dev</span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold text-white truncate">Merchant Demo</span>
+              <span className="text-[10px] text-[#737373] truncate">judge@hackathon.dev</span>
             </div>
           </div>
           <a
             href="https://github.com/yugomania/ai-interface"
             target="_blank"
             rel="noopener noreferrer"
-            title="View GitHub Repository"
-            className="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 transition-colors"
+            title="View PaySight GitHub Repository"
+            className="text-[#737373] hover:text-white p-1 rounded hover:bg-[#242424] transition-colors"
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="hidden lg:flex flex-col h-screen sticky top-0 flex-shrink-0 z-30">
+        {content}
+      </aside>
+
+      {/* Mobile Drawer Overlay */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          <div className="relative z-50 flex-1 max-w-[260px] h-full shadow-2xl">
+            {content}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

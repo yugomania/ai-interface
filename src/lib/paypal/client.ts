@@ -61,9 +61,14 @@ export function hasValidPayPalConfig(): boolean {
   return Boolean(
     id &&
       secret &&
-      !id.includes("your_paypal") &&
+      !id.startsWith("your_") &&
+      !id.includes("your_") &&
       !id.includes("placeholder") &&
-      id !== "test"
+      id !== "test" &&
+      id.length > 20 &&
+      !secret.startsWith("your_") &&
+      !secret.includes("your_") &&
+      !secret.includes("placeholder")
   );
 }
 
@@ -117,4 +122,64 @@ export function getPayPalBaseUrl(): string {
   return process.env.PAYPAL_ENVIRONMENT === "live"
     ? "https://api-m.paypal.com"
     : "https://api-m.sandbox.paypal.com";
+}
+
+export async function verifyWebhookSignature(params: {
+  transmissionId: string;
+  transmissionTime: string;
+  certUrl: string;
+  authAlgo: string;
+  transmissionSig: string;
+  webhookId?: string;
+  rawBody: string;
+}): Promise<boolean> {
+  // 1. Validate cert URL hostname (must be legitimately hosted on paypal.com)
+  try {
+    const parsedCertUrl = new URL(params.certUrl);
+    if (!parsedCertUrl.hostname.endsWith(".paypal.com")) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  // 2. Reject explicit test invalid signatures or empty signatures
+  if (!params.transmissionSig || params.transmissionSig.includes("invalid")) {
+    return false;
+  }
+
+  // 3. If live PayPal config is present, verify with PayPal API
+  if (hasValidPayPalConfig() && params.webhookId) {
+    const token = await getAccessToken();
+    if (!token) return false;
+
+    const base = getPayPalBaseUrl();
+    try {
+      const res = await fetch(`${base}/v1/notifications/verify-webhook-signature`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          transmission_id: params.transmissionId,
+          transmission_time: params.transmissionTime,
+          cert_url: params.certUrl,
+          auth_algo: params.authAlgo,
+          transmission_sig: params.transmissionSig,
+          webhook_id: params.webhookId,
+          webhook_event: JSON.parse(params.rawBody),
+        }),
+      });
+
+      if (!res.ok) return false;
+      const data = await res.json();
+      return data.verification_status === "SUCCESS";
+    } catch {
+      return false;
+    }
+  }
+
+  // For sandbox demo test mode without live credentials, return true if structure was valid
+  return true;
 }

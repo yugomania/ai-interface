@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Sidebar, type NavTab } from "@/components/layout/Sidebar";
 import { TopCommandBar } from "@/components/layout/TopCommandBar";
 import { QuickActionModal } from "@/components/dashboard/QuickActionModal";
@@ -10,6 +10,9 @@ import { TransactionGrid } from "@/components/dashboard/TransactionGrid";
 import { CompetitorPricingGrid } from "@/components/dashboard/CompetitorPricingGrid";
 import { PayPalDemoCheckout } from "@/components/checkout/PayPalDemoCheckout";
 import { ChatPanel } from "@/components/ai/ChatPanel";
+import { NeedsAttention } from "@/components/dashboard/NeedsAttention";
+import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
+import { OverviewQuickActions } from "@/components/dashboard/OverviewQuickActions";
 import type {
   Transaction,
   MerchantKPIs,
@@ -19,33 +22,43 @@ import type {
   Invoice,
   Dispute,
 } from "@/types";
-import { ShieldCheck, ShieldAlert, Sparkles, FileText, CheckCircle2 } from "lucide-react";
+import { FileText, CheckCircle2, Info, Sparkles, Plus } from "lucide-react";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<NavTab>("overview");
   const [globalSearch, setGlobalSearch] = useState("");
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+
+  // Collapsible Assistant state
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [prefillPrompt, setPrefillPrompt] = useState<string>("");
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [kpis, setKpis] = useState<MerchantKPIs | null>(null);
   const [revenueData, setRevenueData] = useState<RevenueDataPoint[]>([]);
   const [comparisons, setComparisons] = useState<PricingComparison[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [disputeMessage, setDisputeMessage] = useState<string>("");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [dateRange, setDateRange] = useState<DateRangeOption>("30d");
 
   const [loadingTxns, setLoadingTxns] = useState(true);
   const [loadingKpis, setLoadingKpis] = useState(true);
   const [loadingRevenue, setLoadingRevenue] = useState(true);
-  const [loadingPricing, setLoadingPricing] = useState(true);
+  const [loadingPricing, setLoadingPricing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // ─── Proportional Data Fetching ──────────────────────────────────────────
 
   const fetchDashboardData = useCallback(async () => {
     setIsRefreshing(true);
+    const days = dateRange === "90d" ? 90 : dateRange === "7d" ? 7 : 30;
 
-    // 1. Transactions
+    // 1. Transactions (scoped to dateRange)
     setLoadingTxns(true);
-    fetch("/api/transactions")
+    fetch(`/api/transactions?days=${days}`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setTransactions(data);
@@ -53,19 +66,21 @@ export default function DashboardPage() {
       .catch((err) => console.error("Transactions fetch error:", err))
       .finally(() => setLoadingTxns(false));
 
-    // 2. KPIs
+    // 2. Authoritative Server-side KPIs
     setLoadingKpis(true);
     fetch("/api/transactions?type=kpis")
       .then((res) => res.json())
       .then((data) => {
-        if (data && !data.error) setKpis(data);
+        if (data && !data.error) {
+          setKpis(data);
+          setIsLiveConnected(data.source === "paypal_sandbox");
+        }
       })
       .catch((err) => console.error("KPIs fetch error:", err))
       .finally(() => setLoadingKpis(false));
 
     // 3. Revenue Trend
     setLoadingRevenue(true);
-    const days = dateRange === "90d" ? 90 : dateRange === "7d" ? 7 : 30;
     fetch(`/api/transactions?type=revenue&days=${days}`)
       .then((res) => res.json())
       .then((data) => {
@@ -74,15 +89,34 @@ export default function DashboardPage() {
       .catch((err) => console.error("Revenue fetch error:", err))
       .finally(() => setLoadingRevenue(false));
 
-    // 4. Disputes
+    // 4. Invoices (Persistent & PayPal Sandbox)
+    fetch("/api/invoices")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.invoices)) {
+          setInvoices(data.invoices);
+        }
+      })
+      .catch((err) => console.error("Invoices fetch error:", err));
+
+    // 5. Disputes (Honest Retrieval)
     fetch("/api/disputes")
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data)) setDisputes(data);
+        if (Array.isArray(data?.disputes)) {
+          setDisputes(data.disputes);
+        }
+        if (data?.statusMessage) {
+          setDisputeMessage(data.statusMessage);
+        }
       })
-      .catch((err) => console.error("Disputes fetch error:", err));
+      .catch((err) => console.error("Disputes fetch error:", err))
+      .finally(() => setIsRefreshing(false));
+  }, [dateRange]);
 
-    // 5. Competitor Pricing (Channel3)
+  // Pricing data is fetched strictly when viewing the Price Comparison tab
+  const fetchPricingData = useCallback(() => {
+    if (comparisons.length > 0) return; // Reuse cached comparisons
     setLoadingPricing(true);
     const sampleProducts = [
       { name: "Premium Noise Cancelling Headphones", price: 149.99 },
@@ -102,29 +136,50 @@ export default function DashboardPage() {
         const valid = results.filter((r) => r && !r.error);
         setComparisons(valid);
       })
-      .finally(() => {
-        setLoadingPricing(false);
-        setIsRefreshing(false);
-      });
-  }, [dateRange]);
+      .finally(() => setLoadingPricing(false));
+  }, [comparisons.length]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDashboardData();
   }, [fetchDashboardData]);
 
+  useEffect(() => {
+    if (activeTab === "pricing") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchPricingData();
+    }
+  }, [activeTab, fetchPricingData]);
+
+  // Keyboard shortcut listener: Cmd/Ctrl+J toggles chat, Escape closes drawers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setIsChatOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        if (isChatOpen) setIsChatOpen(false);
+        if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isChatOpen, isMobileMenuOpen]);
+
+  // Contextual AI Entry Points
+  const openChatWithPrompt = (prompt: string) => {
+    setPrefillPrompt(prompt);
+    setIsChatOpen(true);
+  };
+
   const handleNewPaymentSuccess = (newTxn: Transaction) => {
     setTransactions((prev) => [newTxn, ...prev]);
-    setKpis((prev) => {
-      if (!prev) return null;
-      const newTotal = prev.totalRevenue30d + newTxn.amount;
-      const newCount = prev.transactionCount30d + 1;
-      return {
-        ...prev,
-        totalRevenue30d: newTotal,
-        transactionCount30d: newCount,
-        averageOrderValue: newTotal / newCount,
-      };
-    });
+    // Refresh KPIs server-side so arithmetic is authoritative
+    fetch("/api/transactions?type=kpis")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && !data.error) setKpis(data);
+      });
   };
 
   const handleInvoiceCreated = (newInv: Invoice) => {
@@ -132,12 +187,15 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex">
+    <div className="min-h-screen bg-white text-[#171717] flex">
       {/* 1. Left Vertical Nav Spine */}
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        disputeCount={disputes.length || 1}
+        disputeCount={disputes.length}
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        isLiveConnected={isLiveConnected}
       />
 
       {/* 2. Main Content + Top Bar Wrapper */}
@@ -148,127 +206,180 @@ export default function DashboardPage() {
           onOpenQuickInvoice={() => setIsInvoiceModalOpen(true)}
           onRefresh={fetchDashboardData}
           isRefreshing={isRefreshing}
+          onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          onToggleChat={() => setIsChatOpen((prev) => !prev)}
+          isChatOpen={isChatOpen}
         />
 
-        {/* Work Area + Copilot Split */}
-        <main className="flex-1 p-6 grid grid-cols-1 xl:grid-cols-12 gap-6 items-start max-w-[1780px] w-full mx-auto">
-          {/* Main Workspace (8/12 on large screens) */}
-          <div className="xl:col-span-8 2xl:col-span-8 space-y-6">
-            {/* KPI Metric Blocks (Purrweb style) */}
-            <KPICards kpis={kpis} loading={loadingKpis} />
+        {/* Demo Mode Notification Banner if running without live sandbox credentials */}
+        {!isLiveConnected && (
+          <div className="bg-[#FFF3EB] border-b border-[#FED7AA] px-4 md:px-6 py-2 flex items-center justify-between text-xs text-[#C2410C]">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <strong>Demo Mode Active:</strong> Dashboard is using deterministic, durable sample records. Configure <code>PAYPAL_CLIENT_ID</code> and <code>PAYPAL_CLIENT_SECRET</code> in <code>.env.local</code> for live PayPal Sandbox connection.
+              </span>
+            </div>
+            <span className="hidden sm:inline font-mono text-[11px] bg-white text-[#C2410C] px-2 py-0.5 rounded border border-[#FED7AA]">
+              Sample Data
+            </span>
+          </div>
+        )}
 
-            {/* Tab: Overview (All primary widgets) */}
-            {activeTab === "overview" && (
-              <>
+        {/* Main Work Area: Full Width Responsive Canvas */}
+        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
+          {/* View: Overview (Answers 3 core questions) */}
+          {activeTab === "overview" && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {/* Question 1: How is my business doing? */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-bold text-[#171717]">Business Overview</h2>
+                    <p className="text-xs text-[#626262]">Authoritative performance metrics and settlement velocity</p>
+                  </div>
+                  <span className="text-xs font-mono text-[#626262]">
+                    Timezone: {kpis?.reportingTimezone || "UTC"} • Currency: USD
+                  </span>
+                </div>
+
+                {/* 4 Core Verified KPI Cards */}
+                <KPICards kpis={kpis} loading={loadingKpis} />
+
+                {/* Revenue Trend Chart with Contextual AI action */}
                 <RevenueChart
                   data={revenueData}
                   loading={loadingRevenue}
                   dateRange={dateRange}
                   onDateRangeChange={setDateRange}
-                />
-
-                <TransactionGrid
-                  transactions={transactions}
-                  loading={loadingTxns}
-                  externalSearch={globalSearch}
-                />
-
-                <CompetitorPricingGrid
-                  comparisons={comparisons}
-                  loading={loadingPricing}
-                />
-
-                <PayPalDemoCheckout
-                  onPaymentSuccess={handleNewPaymentSuccess}
-                />
-              </>
-            )}
-
-            {/* Tab: Live Ledger */}
-            {activeTab === "transactions" && (
-              <div className="space-y-6">
-                <TransactionGrid
-                  transactions={transactions}
-                  loading={loadingTxns}
-                  externalSearch={globalSearch}
-                />
-                <PayPalDemoCheckout
-                  onPaymentSuccess={handleNewPaymentSuccess}
+                  onExplainTrend={() =>
+                    openChatWithPrompt(
+                      `Explain my settlement revenue trend for the last ${dateRange}. Detail our velocity, any refund impacts, and volume spikes.`
+                    )
+                  }
                 />
               </div>
-            )}
 
-            {/* Tab: Invoicing */}
-            {activeTab === "invoices" && (
-              <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-6 shadow-xl backdrop-blur-md space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-white">Active Invoices</h3>
-                      <p className="text-xs text-slate-400">Created via PayPal Invoicing API v2</p>
-                    </div>
-                  </div>
+              {/* Question 2: What needs my attention? */}
+              <NeedsAttention
+                disputes={disputes}
+                invoices={invoices}
+                isLiveConnected={isLiveConnected}
+                onNavigateToDisputes={() => setActiveTab("disputes")}
+                onNavigateToInvoices={() => setActiveTab("invoices")}
+              />
+
+              {/* Question 3: What can I do next? */}
+              <div className="space-y-4">
+                {/* Quick Actions Bar */}
+                <OverviewQuickActions
+                  onOpenInvoiceModal={() => setIsInvoiceModalOpen(true)}
+                  onNavigateToPricing={() => setActiveTab("pricing")}
+                  onNavigateToCheckout={() => setActiveTab("checkout")}
+                  onOpenChat={() => setIsChatOpen(true)}
+                />
+
+                {/* 5 Most Recent Transactions */}
+                <RecentTransactions
+                  transactions={transactions}
+                  loading={loadingTxns}
+                  onViewAll={() => setActiveTab("transactions")}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* View: Transactions (Full Ledger) */}
+          {activeTab === "transactions" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div>
+                <h2 className="text-base font-bold text-[#171717]">Transactions</h2>
+                <p className="text-xs text-[#626262]">
+                  Complete searchable ledger with real-time settlement filtering and CSV export
+                </p>
+              </div>
+
+              <TransactionGrid
+                transactions={transactions}
+                loading={loadingTxns}
+                externalSearch={globalSearch}
+                onSummarizeTransactions={() =>
+                  openChatWithPrompt(
+                    "Summarise my recent PayPal transactions for the last 30 days. Highlight completed order volume, any pending or failed transactions, and the net payout after fees."
+                  )
+                }
+              />
+            </div>
+          )}
+
+          {/* View: Invoices */}
+          {activeTab === "invoices" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E5E5] pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-[#171717]">Invoices</h2>
+                  <p className="text-xs text-[#626262]">
+                    Verified PayPal Invoicing v2 draft creation, preview, and status tracking
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openChatWithPrompt(
+                        "Help me prepare an invoice for a customer. Please ask for the customer email, line items, and amount to generate an exact preview."
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF3EB] hover:bg-[#FFE7D6] text-[#C2410C] border border-[#FED7AA] rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Help prepare with AI</span>
+                  </button>
                   <button
                     onClick={() => setIsInvoiceModalOpen(true)}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#C2410C] hover:bg-[#9A3412] text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
                   >
-                    + New Invoice
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ New Invoice</span>
                   </button>
                 </div>
+              </div>
 
+              {invoices.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[#626262] bg-[#F7F7F8] rounded-xl border border-[#E5E5E5]">
+                  No invoices recorded yet. Click <strong>+ New Invoice</strong> to prepare a verified draft.
+                </div>
+              ) : (
                 <div className="space-y-3">
-                  {[
-                    {
-                      id: "INV-00912",
-                      client: "Acme Global Partners",
-                      email: "billing@acmepartners.com",
-                      amount: "$2,500.00",
-                      status: "Sent",
-                      due: "Nov 2, 2026",
-                    },
-                    {
-                      id: "INV-00911",
-                      client: "Starlight Digital Media",
-                      email: "payments@starlight.io",
-                      amount: "$890.00",
-                      status: "Paid",
-                      due: "Oct 24, 2026",
-                    },
-                    ...invoices.map((inv) => ({
-                      id: inv.id,
-                      client: inv.recipientName,
-                      email: inv.recipientEmail,
-                      amount: `$${inv.amount.toFixed(2)}`,
-                      status: "Sent",
-                      due: inv.dueDate,
-                    })),
-                  ].map((inv) => (
+                  {invoices.map((inv) => (
                     <div
                       key={inv.id}
-                      className="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-between text-xs"
+                      className="p-4 rounded-xl bg-white border border-[#E5E5E5] hover:border-[#D4D4D4] transition-all flex flex-wrap items-center justify-between gap-3 text-xs"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-lg bg-slate-700 flex items-center justify-center font-mono text-[11px] text-slate-300 font-semibold">
-                          #
+                        <div className="w-8 h-8 rounded-lg bg-[#F7F7F8] border border-[#E5E5E5] flex items-center justify-center font-mono text-xs text-[#171717] font-bold">
+                          <FileText className="w-4 h-4 text-[#626262]" />
                         </div>
                         <div>
-                          <div className="font-semibold text-white">{inv.client}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">{inv.email}</div>
+                          <div className="font-semibold text-sm text-[#171717]">{inv.recipientName}</div>
+                          <div className="text-xs text-[#626262] font-mono">{inv.recipientEmail}</div>
+                          <div className="text-[11px] text-[#626262] mt-0.5">Invoice #{inv.invoiceNumber}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <div className="font-mono font-bold text-slate-200">{inv.amount}</div>
-                          <div className="text-[10px] text-slate-500">Due {inv.due}</div>
+                          <div className="font-mono tabular-nums font-bold text-sm text-[#171717]">
+                            ${inv.amount.toFixed(2)} {inv.currency}
+                          </div>
+                          <div className="text-[11px] text-[#626262]">Due {inv.dueDate || "On Receipt"}</div>
                         </div>
                         <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            inv.status === "Paid"
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                              : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                            inv.status === "PAID"
+                              ? "bg-[#ECFDF3] text-[#15803D] border-[#BBF7D0]"
+                              : inv.status === "SENT"
+                              ? "bg-[#FFF3EB] text-[#C2410C] border-[#FED7AA]"
+                              : "bg-[#F7F7F8] text-[#171717] border-[#E5E5E5]"
                           }`}
                         >
                           {inv.status}
@@ -277,86 +388,129 @@ export default function DashboardPage() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* View: Price comparison */}
+          {activeTab === "pricing" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div>
+                <h2 className="text-base font-bold text-[#171717]">Price comparison</h2>
+                <p className="text-xs text-[#626262]">
+                  Live competitive pricing benchmarks across multi-retailer catalog listings via Channel3
+                </p>
               </div>
-            )}
 
-            {/* Tab: Dispute Shield */}
-            {activeTab === "disputes" && (
-              <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-6 shadow-xl backdrop-blur-md space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center justify-center">
-                      <ShieldAlert className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-white">PayPal Dispute Shield</h3>
-                      <p className="text-xs text-slate-400">
-                        Chargeback protection &amp; automated seller evidence upload
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    Low Liability Tier (0.24%)
-                  </span>
-                </div>
+              <CompetitorPricingGrid
+                comparisons={comparisons}
+                loading={loadingPricing}
+                onAddComparison={(newComp) => setComparisons((prev) => [newComp, ...prev])}
+                onExplainComparison={() =>
+                  openChatWithPrompt(
+                    "Compare my catalog pricing with the retrieved Channel3 market benchmarks. Which items are underpriced or have margin optimization opportunities?"
+                  )
+                }
+              />
+            </div>
+          )}
 
-                <div className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
-                      <span className="text-xs font-semibold text-white">Dispute #DISP-0019</span>
-                      <span className="text-[10px] font-mono text-slate-400">TXN-4910</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-rose-300">$149.99 USD</span>
-                  </div>
-                  <p className="text-xs text-slate-300">
-                    Reason: <em>Merchandise not as described</em> • Buyer: <strong>Alice Johnson</strong>
+          {/* View: Disputes */}
+          {activeTab === "disputes" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-[#171717]">Disputes</h2>
+                  <p className="text-xs text-[#626262]">
+                    Verified PayPal Sandbox chargeback tracking and customer dispute cases
                   </p>
-                  <div className="pt-2 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-500">
-                      Response window expires in 4 days
-                    </span>
-                    <button
-                      onClick={() =>
-                        alert(
-                          "PaySight AI Evidence Generator has drafted delivery confirmation & tracking slip."
-                        )
-                      }
-                      className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-all"
-                    >
-                      AI Draft Evidence
-                    </button>
-                  </div>
                 </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#ECFDF3] text-[#15803D] border border-[#BBF7D0]">
+                  {disputes.length === 0 ? "0 Active Disputes" : `${disputes.length} Open Dispute(s)`}
+                </span>
               </div>
-            )}
 
-            {/* Tab: Channel3 Market Radar */}
-            {activeTab === "pricing" && (
-              <div className="space-y-6">
-                <CompetitorPricingGrid
-                  comparisons={comparisons}
-                  loading={loadingPricing}
-                />
+              {disputes.length === 0 ? (
+                <div className="p-8 rounded-xl bg-[#F7F7F8] border border-[#E5E5E5] space-y-2 text-center text-xs">
+                  <CheckCircle2 className="w-8 h-8 text-[#15803D] mx-auto mb-1" />
+                  <div className="font-semibold text-sm text-[#171717]">
+                    {disputeMessage || "No active dispute cases in your PayPal account."}
+                  </div>
+                  <p className="text-[#626262] max-w-md mx-auto">
+                    In the PayPal Sandbox, dispute cases can be triggered via the PayPal Developer Portal. Evidence submission requires verified documentation from the merchant.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {disputes.map((d) => (
+                    <div
+                      key={d.id}
+                      className="p-4 rounded-xl bg-white border border-[#FECACA] space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-[#B91C1C]" />
+                          <span className="text-xs font-bold text-[#171717]">Dispute #{d.id}</span>
+                          <span className="text-[11px] font-mono text-[#626262]">TXN: {d.transactionId}</span>
+                        </div>
+                        <span className="text-xs font-mono tabular-nums font-bold text-[#B91C1C]">
+                          ${d.amount.toFixed(2)} {d.currency}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#171717]">
+                        Reason: <em>{d.reason}</em> • Buyer: <strong>{d.buyerName}</strong>
+                      </p>
+                      <div className="pt-2 flex items-center justify-between text-xs text-[#626262] border-t border-[#F7F7F8]">
+                        <span>Opened: {new Date(d.openedDate).toLocaleDateString()}</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]">
+                          {d.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* View: Demo tools (Sandbox Checkout) */}
+          {activeTab === "checkout" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div>
+                <h2 className="text-base font-bold text-[#171717]">Demo Tools: Sandbox Checkout</h2>
+                <p className="text-xs text-[#626262]">
+                  Simulate buyer payment captures and test server-side order settlement in PayPal Sandbox
+                </p>
               </div>
-            )}
 
-            {/* Tab: Pay Terminal */}
-            {activeTab === "checkout" && (
-              <div className="space-y-6">
-                <PayPalDemoCheckout
-                  onPaymentSuccess={handleNewPaymentSuccess}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Right AI Copilot Dock (4/12 on large screens, sticky) */}
-          <div className="xl:col-span-4 2xl:col-span-4 xl:sticky xl:top-20 h-[calc(100vh-100px)] min-h-[580px]">
-            <ChatPanel />
-          </div>
+              <PayPalDemoCheckout onPaymentSuccess={handleNewPaymentSuccess} />
+            </div>
+          )}
         </main>
       </div>
+
+      {/* 3. Collapsible AI Assistant Slide-over Drawer (380-440px on Desktop, Fullscreen on Mobile) */}
+      <div
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[420px] transition-transform duration-300 ease-in-out flex flex-col ${
+          isChatOpen ? "translate-x-0" : "translate-x-full pointer-events-none"
+        }`}
+        aria-hidden={!isChatOpen}
+      >
+        <ChatPanel
+          onClose={() => setIsChatOpen(false)}
+          prefillPrompt={prefillPrompt}
+          onClearPrefill={() => setPrefillPrompt("")}
+        />
+      </div>
+
+      {/* Backdrop overlay when chat is open on smaller screens */}
+      {isChatOpen && (
+        <div
+          onClick={() => setIsChatOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 sm:hidden transition-opacity"
+          aria-hidden="true"
+        />
+      )}
 
       {/* Quick Action Modal for Invoices */}
       <QuickActionModal
