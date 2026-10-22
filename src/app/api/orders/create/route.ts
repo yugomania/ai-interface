@@ -116,9 +116,31 @@ export async function POST(req: NextRequest) {
       isLive: false,
     });
   } catch (err) {
-    console.error("[/api/orders/create] error:", err instanceof Error ? err.message : err);
+    let errMsg = "Failed to create order";
+    let debugId: string | undefined;
+    if (err && typeof err === "object") {
+      const sdkErr = err as Record<string, unknown>;
+      const result = sdkErr.result as Record<string, unknown> | undefined;
+      const headers = sdkErr.headers as Record<string, string> | undefined;
+      debugId = headers?.["paypal-debug-id"];
+
+      if (result?.error_description && typeof result.error_description === "string") {
+        errMsg = `${result.error ?? "error"}: ${result.error_description}`;
+      } else if (result?.message && typeof result.message === "string") {
+        errMsg = result.message;
+        const details = result.details as Array<Record<string, string>> | undefined;
+        if (details?.[0]?.issue) {
+          errMsg = `${details[0].issue}: ${details[0].description ?? result.message}`;
+        }
+      } else if (sdkErr.message && typeof sdkErr.message === "string" && sdkErr.message.trim()) {
+        errMsg = sdkErr.message;
+      } else if (typeof sdkErr.statusCode === "number") {
+        errMsg = `PayPal API error (HTTP ${sdkErr.statusCode})`;
+      }
+    }
+    console.error("[/api/orders/create] error:", errMsg, debugId ? `(debug_id: ${debugId})` : "");
     return Response.json(
-      { error: err instanceof Error ? err.message : "Failed to create order" },
+      { error: errMsg, debug_id: debugId },
       { status: 500 }
     );
   }
